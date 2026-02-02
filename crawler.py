@@ -107,7 +107,9 @@ def crawler_main(max_tweets: int = 3):
 
                 for ioc in parsed["iocs"]:
 
-                    if ioc in seen_ioc:
+                    normalized_ioc = ioc.lower().strip()
+
+                    if normalized_ioc in seen_ioc:
                         logging.info(f"Duplicate IOC skipped | IOC={ioc}")
                         continue
 
@@ -115,7 +117,7 @@ def crawler_main(max_tweets: int = 3):
 
                     save_ioc(ioc, ioc_type, tweet_link)
 
-                    seen_ioc.add(ioc)
+                    seen_ioc.add(normalized_ioc)
                     new_ioc_count += 1
 
                     logging.info(

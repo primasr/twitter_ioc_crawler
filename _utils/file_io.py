@@ -24,8 +24,9 @@ def load_existing_iocs():
                     continue
 
                 parts = [p.strip() for p in line.split("|")]
-                if len(parts) >= 3:
-                    seen.add((parts[0], parts[2]))
+                if len(parts) >= 1:
+                    ioc = parts[0]
+                    seen.add(ioc.lower().strip())
     except Exception as e:
         logging.error(f"Failed to load existing IOCs: {e}", exc_info=True)
 
