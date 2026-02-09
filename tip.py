@@ -37,51 +37,64 @@ def tip_main(send_to_siem: bool = False):
         logging.info(f"VT lookup | IOC={ioc}")
         result = vt_lookup(ioc)
 
-        if not result:
-            logging.warning(f"Skipped IOC={ioc} (unsupported type)")
-            continue
-        if "error" in result:
-            logging.error(f"Error enriching IOC={ioc}: {result['error']}")
-            continue
+        # ---- If VT Unsupported OR Error → Build Default Result ----
+        if not result or "error" in result:
 
-        # ---- Normalize VirusTotal fields ----
-        result["vt_last_analysis_date"] = result.get("last_analysis_date", "")
-        result["vt_malicious_score"] = result.get("malicious", "")
+            if not result:
+                logging.warning(f"Unsupported IOC type | IOC={ioc}")
+            else:
+                logging.error(f"VT error | IOC={ioc} | err={result.get('error')}")
 
-        result["ioc"] = ioc
-        result["ioc_type"] = ioc_type
-        result["twitter_link"] = tweet_link
+            checked_date = int(time.time())
 
-        # ---- AlienVault OTX (IP / URL / HASH) ----
-        logging.info(f"AlienVault lookup | IOC={ioc}")
-        alien = alienvault_lookup(ioc)
-        if alien:
-            result.update(alien)
-            logging.info(f"AlienVault enriched | IOC={ioc}")
+            result = {
+                "vt_last_analysis_date": checked_date,
+                "vt_malicious_score": -999,
+
+                "ioc": ioc,
+                "ioc_type": ioc_type,
+                "twitter_link": tweet_link,
+            }
+
         else:
-            logging.warning(f"AlienVault no data | IOC={ioc}")
+            # ---- Normal VT Mapping ----
+            result["vt_last_analysis_date"] = result.get("last_analysis_date", "")
+            result["vt_malicious_score"] = result.get("malicious", "")
 
-        # ---- MalwareBazaar (HASH Only) ----
-        if ioc_type == "hash":
-            logging.info(f"MalwareBazaar lookup | IOC={ioc}")
+            result["ioc"] = ioc
+            result["ioc_type"] = ioc_type
+            result["twitter_link"] = tweet_link
 
-            mb = malwarebazaar_lookup(ioc)
-            if mb:
-                result.update(mb)
-                logging.info(f"MalwareBazaar enriched | IOC={ioc}")
+            # ---- AlienVault OTX (IP / URL / HASH) ----
+            logging.info(f"AlienVault lookup | IOC={ioc}")
+            alien = alienvault_lookup(ioc)
+            if alien:
+                result.update(alien)
+                logging.info(f"AlienVault enriched | IOC={ioc}")
             else:
-                logging.warning(f"MalwareBazaar no data | IOC={ioc}")
+                logging.warning(f"AlienVault no data | IOC={ioc}")
 
-        # ---- AbuseIPDB (IP Only) ----
-        if ioc_type == "ip":
-            logging.info(f"AbuseIPDB lookup | IOC={ioc}")
+            # ---- MalwareBazaar (HASH Only) ----
+            if ioc_type == "hash":
+                logging.info(f"MalwareBazaar lookup | IOC={ioc}")
 
-            abuse = abuseipdb_lookup(ioc)
-            if abuse:
-                result.update(abuse)
-                logging.info(f"AbuseIPDB enriched | IOC={ioc}")
-            else:
-                logging.warning(f"AbuseIPDB no data | IOC={ioc}")
+                mb = malwarebazaar_lookup(ioc)
+                if mb:
+                    result.update(mb)
+                    logging.info(f"MalwareBazaar enriched | IOC={ioc}")
+                else:
+                    logging.warning(f"MalwareBazaar no data | IOC={ioc}")
+
+            # ---- AbuseIPDB (IP Only) ----
+            if ioc_type == "ip":
+                logging.info(f"AbuseIPDB lookup | IOC={ioc}")
+
+                abuse = abuseipdb_lookup(ioc)
+                if abuse:
+                    result.update(abuse)
+                    logging.info(f"AbuseIPDB enriched | IOC={ioc}")
+                else:
+                    logging.warning(f"AbuseIPDB no data | IOC={ioc}")
  
         # ---- SAVE RESULT ----
         save_tip_result(result)
