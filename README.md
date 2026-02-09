@@ -4,7 +4,15 @@ This project is a lightweight **Cyber Threat Intelligence (CTI) pipeline** desig
 
 The pipeline is composed of two core components: a Crawler that collects tweets from configurable Twitter usernames and extracts IOCs (hash, IP, URL), and a TIP Enrichment engine that enriches collected IOCs using VirusTotal, AlienVault OTX, MalwareBazaar, and AbuseIPDB. The system supports runtime customization such as tweet count selection and optional SIEM forwarding.
 
-## Latest Update (Feb 2nd 2026)
+![Pipeline Flowchart](images/diagram.png)
+
+## List of Updates
+
+### Feb 9th 2026
+
+Fixing logic flaw: retry loop on verdict/reputation checking
+
+### Feb 2nd 2026
 
 The pipeline now supports runtime customization and better logging.
 
