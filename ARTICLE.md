@@ -1,6 +1,6 @@
-# Turning Chaos into Intel: Building an Automated Threat Intelligence Pipeline from Twitter (X)
+# Automating Threat Intel: How I Built a Twitter IOC Crawler and Enrichment Pipeline
 
-*How a cup of cold coffee and repetitive copy-pasting inspired a lightweight, automated CTI pipeline that turns raw tweets into enriched, SIEM-ready security intelligence.*
+*A practical look at how I automated collecting Indicators of Compromise from Twitter and enriching them with VirusTotal, AlienVault OTX, AbuseIPDB, and MalwareBazaar.*
 
 ---
 
@@ -9,70 +9,65 @@
 
 ---
 
-## The 8:00 AM Threat Hunter Routine
+## Why Twitter for Threat Intelligence?
 
-If you work in Cyber Threat Intelligence (CTI) or SOC operations, this morning routine probably sounds painfully familiar:
+If you spend time in the cybersecurity space, you probably know that Twitter (or X) is still one of the fastest places to find fresh threat data. Security researchers and accounts like `@malwrhunterteam` and `@abuse_ch` regularly share new malware samples, active C2 IP addresses, and phishing URLs before they appear in formal threat feeds.
 
-1. Grab your morning coffee.
-2. Open Twitter (X).
-3. Check the timelines of seasoned malware researchers and threat groups (@malwrhunterteam, @abuse_ch, and the infosec community).
-4. Spot a fresh drop: a brand new ransomware campaign with juicy IOCs.
-5. Manually copy a defanged URL like `hxxps://satinmaple4[.]com/curl/0djk1usgn/yrdkr6r6fyp8viva.txt`.
-6. Open four different browser tabs: **VirusTotal**, **AlienVault OTX**, **AbuseIPDB**, and **MalwareBazaar**.
-7. Clean up the defanged brackets, query each platform, evaluate scores, and paste the results into a spreadsheet or ticketing system.
+However, gathering this data manually gets repetitive very quickly:
 
-By the time you finish investigating three tweets, your coffee is stone cold, and an hour of your morning has evaporated into manual grunt work.
+1. You scroll through accounts to find tweets containing indicators.
+2. You copy defanged text like `hxxps://example[.]com` or `103.193.173[.]83`.
+3. You open VirusTotal, AlienVault OTX, AbuseIPDB, or MalwareBazaar.
+4. You clean up the text, paste it into each search bar, check the reputation, and save the notes.
 
-> *"In threat intelligence, speed is defense. A malicious domain active right now is exponentially more valuable than a threat report published two weeks after the incident."*
+Doing this for one or two tweets is fine. Doing it every day for dozens of tweets takes a lot of time that could be spent on actual analysis.
 
-The threat hunting community on X is fast, sharp, and constantly sharing live campaign data before formal advisories even exist. But raw tweets are messy, informal, and unstructured.
-
-I wanted to bridge that gap. So, I built a lightweight, end-to-end Python pipeline to automate the entire lifecycle—from scrolling timelines to querying multi-engine threat intelligence platforms and forwarding actionable records straight to a SIEM.
-
-Here is the story of how it works, the architectural design, and the unexpected engineering hurdles along the way.
+To solve this, I built a small, modular Python pipeline that handles the whole workflow automatically: crawling target accounts, extracting and defanging IOCs, querying threat intelligence platforms, and saving everything in a structured format.
 
 ---
 
-## The Vision & Architecture
+## How the Pipeline Works
 
-The goal was simple: **Zero manual clicking.**
+The project is split into two simple stages:
 
-I wanted a modular system where I could drop a list of Twitter handles into a text file, run a single command, and sit back while the system crawled, parsed, normalized, verified reputation across multiple providers, and delivered a clean dataset.
+1. **Crawler Stage (`crawler.py`)**: Uses Selenium to open Twitter accounts, scroll the timeline, and extract hashes, IP addresses, and URLs.
+2. **Enrichment Stage (`tip.py`)**: Takes the collected IOCs and looks them up across VirusTotal, AlienVault OTX, MalwareBazaar, and AbuseIPDB.
 
-Here is the high-level architecture of how the pipeline flows:
+Here is a simple diagram showing the flow:
 
 ![Pipeline Architecture](images/diagram.png)
 
-The workflow breaks down into two core stages:
+The basic flow looks like this:
 
 ```
-[ Twitter Timelines ]
-         │
-         ▼
-┌──────────────────┐
-│  STAGE 1: CRAWL  │ ──► Extracts & Defangs IOCs (SHA256, IPv4, URLs)
-└──────────────────┘
-         │
-         ▼
-┌──────────────────┐
-│  STAGE 2: ENRICH │ ──► Queries VT, AlienVault, AbuseIPDB, MalwareBazaar
-└──────────────────┘
-         │
-         ├──► [ tip_results.txt ]
-         └──► [ Optional SIEM Ingestion ]
+[ Twitter Accounts in twitter_users.txt ]
+                  │
+                  ▼
+         [ crawler.py ]
+   (Extracts & Defangs IOCs)
+                  │
+                  ▼
+             [ iocs.txt ]
+                  │
+                  ▼
+            [ tip.py ]
+   (Queries VT, OTX, MB, AbuseIPDB)
+                  │
+                  ▼
+         [ tip_results.txt ]
+                  │
+                  ▼
+     [ Optional SIEM Ingestion ]
 ```
 
 ---
 
-## Stage 1: Infiltrating the Feed (Stealth & Extraction)
+## Stage 1: Scraping and Parsing Tweets
 
-### Why Crawling Twitter Isn't Trivial Anymore
-In the past, consuming Twitter data was as simple as hitting an open API endpoint. Today, public endpoints are heavily restricted, and automated scraping encounters aggressive anti-bot protection (Cloudflare challenges, device fingerprinting, and login walls).
-
-To overcome this reliably without fragile workarounds, the crawler uses **Selenium Chrome in headless mode** paired with authenticated session cookies (`auth_token` and `ct0`).
+### 1. Handling Authentication with Cookies
+Twitter no longer allows easy public browsing without an account. Rather than dealing with API fees, the script uses Selenium with Chrome in headless mode and injects standard session cookies (`auth_token` and `ct0`) from a logged-in account.
 
 ```python
-# Launching with realistic desktop fingerprinting
 opts = Options()
 opts.add_argument("--headless=new")
 opts.add_argument("--window-size=1920,1080")
@@ -81,69 +76,52 @@ opts.add_argument("--disable-blink-features=AutomationControlled")
 opts.add_experimental_option("excludeSwitches", ["enable-automation"])
 ```
 
-Injecting session cookies right after initializing the driver allows the bot to seamlessly load researcher profiles just like a legitimate authenticated browser session.
+Setting a realistic desktop user agent and disabling automation flags is important here, otherwise Twitter's bot protection returns an HTTP 403 error before the page even loads.
 
----
-
-### The Art of Defanging & Regex Extraction
-Threat researchers intentionally "defang" malicious links so readers don't accidentally click them. You'll often see:
-* `hxxps://` or `hxxp://` instead of `https://`
-* `103.193.173[.]83` or `46.151.178(.)13`
+### 2. Defanging and Extracting IOCs
+Researchers on Twitter defang links so users do not accidentally click them. Common examples include:
+* `hxxp://` or `hxxps://` instead of `http://` or `https://`
+* `1.1.1[.]1` or `1.1.1(.)1`
 * `http[:]//`
 
-Before running pattern matching, the crawler runs an aggressive normalization pass:
+Before applying regex, the parser normalizes the text back to standard format:
 
 ```python
 def normalize(text: str) -> str:
-    # Convert defanged protocol
     text = re.sub(r'hxxp(s?)://', r'http\1://', text, flags=re.IGNORECASE)
-    # Neutralize bracket and parenthesis defanging
     text = text.replace("[.]", ".").replace("(.)", ".").replace("[:]", ":")
     return text
 ```
 
-From there, precise regular expressions detect:
-- **SHA256 Hashes:** 64-character hexadecimal digests.
-- **IPv4 Addresses:** Valid 4-octet IP boundaries.
-- **HTTP / HTTPS URLs:** Full paths and domain parameters.
-
-Every new finding is stored in `iocs.txt` alongside the original tweet source link for provenance.
+Then, regular expressions pull out SHA256 hashes, IPv4 addresses, and URLs. New indicators are saved to `iocs.txt` along with the source tweet link so you always know where an IOC came from.
 
 ---
 
-## Stage 2: The Multi-Engine Enrichment Hub
+## Stage 2: Threat Intelligence Platform (TIP) Enrichment
 
-Collecting raw IOCs is only half the battle. A standalone IP address like `94.154.43.48` tells you very little on its own. Is it a known Cobalt Strike server? A compromised scanner? Or a false positive?
+Once `iocs.txt` has new indicators, the enrichment script takes over. It checks the type of each IOC and queries the right services:
 
-The enrichment engine takes each queued IOC and queries four specialized intelligence platforms:
-
-| Platform | Targeted IOC Types | What We Extract |
+| Platform | Supported Types | Data We Collect |
 | :--- | :--- | :--- |
-| **VirusTotal** | Hash, IP, URL | Malicious detection count & last scan timestamp |
-| **AlienVault OTX** | Hash, IP, URL | Threat pulse counts & community indicator links |
-| **MalwareBazaar** | Hash (SHA256) | Malware family signatures (e.g., *AdaptixC2*, *AgentTesla*) & vendor intel count |
-| **AbuseIPDB** | IPv4 | Abuse confidence score (0-100%), total reports & domain info |
+| **VirusTotal** | Hash, IP, URL | Malicious score and last analysis date |
+| **AlienVault OTX** | Hash, IP, URL | Threat pulse counts and reference links |
+| **MalwareBazaar** | Hash (SHA256) | Malware signature (e.g. *AdaptixC2*, *AgentTesla*) and intel count |
+| **AbuseIPDB** | IPv4 | Abuse confidence score, report count, and domain |
 
-### Respecting the Limits
-Threat intel APIs aren't infinite. Public tiers (especially VirusTotal) enforce rate limits (e.g., 4 requests per minute). The engine enforces a graceful delay between lookups and automatically skips previously enriched IOCs:
-
-```python
-pending_iocs = [item for item in indexed_iocs if item[0] not in seen_results]
-```
-
-If an IOC is already in our database, it's skipped immediately. Zero wasted API credits.
+### Managing API Rate Limits
+Public API keys often have rate limits (for example, VirusTotal allows 4 requests per minute on free accounts). The script includes a configurable sleep timer between lookups and checks existing results first so it never wastes API calls on IOCs that were already enriched.
 
 ---
 
-## Real-World Output: What Does the Intel Look Like?
+## What the Output Looks Like
 
 When you run the pipeline:
 
 ```bash
-python3 main.py --tweets 5 --siem
+python3 main.py --tweets 5
 ```
 
-The system produces a unified, clean execution log:
+The script prints clean, readable progress in your terminal and writes it to `twitter_ioc_crawler_log.txt`:
 
 ```text
 2026-09-05 17:28:10 | INFO    | =================================================================
@@ -162,51 +140,33 @@ The system produces a unified, clean execution log:
 2026-09-05 17:28:47 | INFO    |   └─ Status        : Saved to tip_results.txt
 ```
 
-And in `tip_results.txt`, you get a structured record:
+The final output is saved to `tip_results.txt` in a pipe-separated format that is easy to import into Excel, a SIEM, or a database:
 
 ```text
 twitter_link | https://x.com/malwrhunterteam/status/2082080091786313891
 ioc          | d8b6088156477df342a5387bc81aef1e242f12d2f722e5e2030cbc51c203d547
 ioc_type     | hash
-vt_score     | 52 / 70 engines
+vt_score     | 52
 signature    | AdaptixC2
-vendor_intel | 13 security vendors confirmed
+vendor_intel | 13
 ```
 
-From a single tweet, we now have high-fidelity attribution, confirmed malicious verdicts, and direct links ready for automated firewall blocking or SIEM alerting.
+---
+
+## Lessons Learned While Building This
+
+A few practical things came up during development that are worth noting if you build something similar:
+
+1. **Selenium Anti-Detection**: Standard headless Chrome gets blocked by Cloudflare and Twitter immediately. Adding `--disable-blink-features=AutomationControlled` and a real user-agent string solved the issue.
+2. **Matching Dictionary Keys**: At one point, AlienVault results were returning `alienvault_pulse_count`, but the saving function expected `alienvault_pulse_info_count`. Because no error was raised, the column stayed blank in the output file until I caught the naming mismatch.
+3. **Structured Logging**: Raw print statements get messy fast when multiple APIs are involved. Formatting logs with simple tree branches (`├─`, `└─`) and step counters (`[1/5]`) makes following the progress much easier.
 
 ---
 
-## Lessons Learned & Engineering Gotchas
+## Conclusion
 
-Building automation around social media and external APIs always comes with unexpected hurdles. Here are three major takeaways:
+This project started as a way to cut down on repetitive manual lookups, and it turned into a reliable little tool for daily threat monitoring. You can set it to run on a schedule, add your favorite researcher accounts to `twitter_users.txt`, and let it collect and enrich data in the background.
 
-### 1. The Headless Anti-Bot Trap
-When testing Selenium headless Chrome, Twitter initially threw `HTTP 403 Forbidden`, navigating to `chrome-error://chromewebdata/`. Because the browser landed on an error page, attempting to inject cookies triggered `InvalidCookieDomainException`. 
+Feel free to check out the code, tweak the regex patterns, or plug in additional threat intel providers.
 
-*Lesson:* Modern bot detection looks for automation signatures like `navigator.webdriver = true` and default headless user-agents. Disabling Blink automation features and explicitly declaring standard window dimensions (`1920x1080`) resolved the issue instantly.
-
-### 2. Schemas Need Relentless Discipline
-During development, AlienVault fields were returning `alienvault_checked_at` and `alienvault_pulse_count`, while the database handler expected `alienvault_time` and `alienvault_pulse_info_count`. It failed silently—saving empty columns without raising exceptions.
-
-*Lesson:* Always enforce strict key mapping validations across provider layers so mismatched schemas never escape unnoticed.
-
-### 3. Clear Logs Are as Important as Working Code
-A script that dumps raw API outputs into a log file creates cognitive overload. Converting raw provider strings into an ASCII tree structure (`├─`, `└─`) with stage counters (`[1/10]`) turned messy logs into an intuitive operational dashboard.
-
----
-
-## Conclusion & What's Next
-
-Threat intelligence doesn't always need seven-figure enterprise platforms to be effective. By combining simple automation tools with the power of the open security community, you can build a responsive, automated pipeline that saves hours of manual analysis every week.
-
-### What's Next on the Roadmap:
-- [ ] Direct Telegram / Discord webhook alerts for high-severity hits (VT score > 30).
-- [ ] Automated YARA rule fetching from MalwareBazaar payloads.
-- [ ] Integration with MISP (Malware Information Sharing Platform).
-
-If you're interested in exploring or extending the project, feel free to dive into the codebase, test it with your favorite threat intel accounts, and make it your own!
-
----
-
-*Happy Hunting! 🛡️*
+Happy hunting!
