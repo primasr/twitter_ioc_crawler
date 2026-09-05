@@ -205,3 +205,10 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Pipeline output files
+iocs.txt
+tip_results.txt
+twitter_ioc_crawler_log.txt
+twitter_ioc_crawler_log.log
+logging.log

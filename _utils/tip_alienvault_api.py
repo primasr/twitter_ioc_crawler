@@ -61,21 +61,18 @@ def alienvault_lookup(ioc: str) -> Optional[dict]:
         "User-Agent": "CTI-TIP/1.0",
     }
 
-    logging.info(f"AlienVault lookup | IOC={ioc}")
-
     try:
         resp = requests.get(api_url, headers=headers, timeout=15)
         resp.raise_for_status()
         raw = resp.json()
     except Exception as e:
-        logging.error(f"AlienVault request failed | IOC={ioc} | {e}")
+        logging.warning(f"AlienVault request failed for {ioc}: {e}")
         return None
 
     pulse_info = raw.get("pulse_info", {})
     pulse_count = pulse_info.get("count", 0)
 
     if pulse_count == 0:
-        logging.info(f"AlienVault not found | IOC={ioc}")
         return None
 
     # ---- Build UI link ----
@@ -86,12 +83,8 @@ def alienvault_lookup(ioc: str) -> Optional[dict]:
 
     checked_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
-    logging.info(
-        f"AlienVault hit | IOC={ioc} | pulses={pulse_count}"
-    )
-
     return {
-        "alienvault_checked_at": checked_at,
-        "alienvault_pulse_count": pulse_count,
+        "alienvault_time": checked_at,
+        "alienvault_pulse_info_count": pulse_count,
         "alienvault_link": ui_link,
     }

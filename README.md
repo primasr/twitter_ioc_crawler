@@ -28,7 +28,7 @@ Users can choose whether to send enrichment results to SIEM. Default is disabled
 4. Dual Log Output
 Logs are written to:
 
-- `logging.log`
+- `twitter_ioc_crawler_log.log`
 - `twitter_ioc_crawler_log.txt`
 
 5. Python 3.9 Compatibility Adjustments
@@ -66,7 +66,7 @@ You need to create a `.txt` file named `twitter_users.txt` containing the list o
 ## Outputs
 The pipeline generates the following files:
 
-- `logging.log` & `twitter_ioc_crawler_log.txt`
+- `twitter_ioc_crawler_log.log` & `twitter_ioc_crawler_log.txt`
 Contains execution logs for crawling, enrichment, warnings, and errors.
 - `iocs.txt`
 Stores the list of IOCs collected from Twitter, including:

@@ -17,103 +17,108 @@ from _utils.tip_file_io import (
 setup_logging()
 
 def tip_main(send_to_siem: bool = False):
-    logging.info("[✓] START - Cheking to Threat Intelligence Tools")
+    logging.info("=" * 65)
+    logging.info("[*] STAGE 2: THREAT INTELLIGENCE PLATFORM (TIP) ENRICHMENT STARTED")
+    logging.info("=" * 65)
 
     indexed_iocs = load_ioc_index()
     seen_results = load_existing_tip_results()
 
-    logging.info(f"[+] Loaded {len(indexed_iocs)} IOCs from index")
-    logging.info(f"[+] Loaded {len(seen_results)} existing VT results")
+    pending_iocs = [item for item in indexed_iocs if item[0] not in seen_results]
+
+    logging.info(f"[+] Total IOCs in index     : {len(indexed_iocs)}")
+    logging.info(f"[+] Already enriched IOCs   : {len(seen_results)}")
+    logging.info(f"[+] Pending enrichment IOCs : {len(pending_iocs)}")
+
+    if not pending_iocs:
+        logging.info("[✓] All IOCs already enriched. Nothing to process.")
+        return
 
     new_count = 0
+    total_pending = len(pending_iocs)
 
-    for ioc, ioc_type, tweet_link in indexed_iocs:
-        if ioc in seen_results:
-            logging.info(f"Skipping IOC={ioc} (already enriched)")
-            continue
-
+    for idx, (ioc, ioc_type, tweet_link) in enumerate(pending_iocs, 1):
+        logging.info("-" * 65)
+        logging.info(f"[{idx}/{total_pending}] Enriching [{ioc_type.upper()}] {ioc}")
 
         # ---- VirusTotal (IP, Url, Hash) ----
-        logging.info(f"VT lookup | IOC={ioc}")
         result = vt_lookup(ioc)
 
-        # ---- If VT Unsupported OR Error → Build Default Result ----
         if not result or "error" in result:
-
             if not result:
-                logging.warning(f"Unsupported IOC type | IOC={ioc}")
+                logging.info(f"  ├─ VirusTotal    : No data / Unsupported")
             else:
-                logging.error(f"VT error | IOC={ioc} | err={result.get('error')}")
+                logging.warning(f"  ├─ VirusTotal    : Error ({result.get('error')})")
 
             checked_date = int(time.time())
-
             result = {
                 "vt_last_analysis_date": checked_date,
                 "vt_malicious_score": -999,
-
                 "ioc": ioc,
                 "ioc_type": ioc_type,
                 "twitter_link": tweet_link,
             }
-
         else:
-            # ---- Normal VT Mapping ----
+            vt_score = result.get("malicious", 0)
+            vt_date = result.get("last_analysis_date", "N/A")
+            logging.info(f"  ├─ VirusTotal    : Malicious Score = {vt_score} | Last Analysis = {vt_date}")
+
             result["vt_last_analysis_date"] = result.get("last_analysis_date", "")
             result["vt_malicious_score"] = result.get("malicious", "")
-
             result["ioc"] = ioc
             result["ioc_type"] = ioc_type
             result["twitter_link"] = tweet_link
 
             # ---- AlienVault OTX (IP / URL / HASH) ----
-            logging.info(f"AlienVault lookup | IOC={ioc}")
             alien = alienvault_lookup(ioc)
             if alien:
                 result.update(alien)
-                logging.info(f"AlienVault enriched | IOC={ioc}")
+                logging.info(f"  ├─ AlienVault OTX: Pulses = {alien.get('alienvault_pulse_info_count', 0)}")
             else:
-                logging.warning(f"AlienVault no data | IOC={ioc}")
+                logging.info(f"  ├─ AlienVault OTX: No pulses found")
 
             # ---- MalwareBazaar (HASH Only) ----
             if ioc_type == "hash":
-                logging.info(f"MalwareBazaar lookup | IOC={ioc}")
-
                 mb = malwarebazaar_lookup(ioc)
                 if mb:
                     result.update(mb)
-                    logging.info(f"MalwareBazaar enriched | IOC={ioc}")
+                    sig = mb.get("malwarebazaar_signature") or "Unknown"
+                    intel_cnt = mb.get("malwarebazaar_vendor_intel_count", 0)
+                    logging.info(f"  ├─ MalwareBazaar : Signature = {sig} | Intel Count = {intel_cnt}")
                 else:
-                    logging.warning(f"MalwareBazaar no data | IOC={ioc}")
+                    logging.info(f"  ├─ MalwareBazaar : Hash not found")
 
             # ---- AbuseIPDB (IP Only) ----
             if ioc_type == "ip":
-                logging.info(f"AbuseIPDB lookup | IOC={ioc}")
-
                 abuse = abuseipdb_lookup(ioc)
                 if abuse:
                     result.update(abuse)
-                    logging.info(f"AbuseIPDB enriched | IOC={ioc}")
+                    score = abuse.get("abuseipdb_abuseConfidenceScore", "0")
+                    reports = abuse.get("abuseipdb_totalReports", "0")
+                    domain = abuse.get("abuseipdb_domain") or "N/A"
+                    logging.info(f"  ├─ AbuseIPDB     : Confidence = {score}% | Reports = {reports} | Domain = {domain}")
                 else:
-                    logging.warning(f"AbuseIPDB no data | IOC={ioc}")
- 
+                    logging.info(f"  ├─ AbuseIPDB     : No data found")
+
         # ---- SAVE RESULT ----
         save_tip_result(result)
         seen_results.add(ioc)
+        new_count += 1
 
         # ---- OPTIONAL SIEM SEND ----
         if send_to_siem:
             try:
                 send_tip_result_to_siem(result)
-                logging.info(f"SIEM sent | IOC={ioc}")
+                logging.info(f"  ├─ SIEM Forward  : Delivered successfully")
             except Exception as e:
-                logging.error(f"SIEM send failed | IOC={ioc} | err={e}")
+                logging.error(f"  ├─ SIEM Forward  : Failed ({e})")
 
-        new_count += 1
+        logging.info(f"  └─ Status        : Saved to tip_results.txt")
 
-        logging.info(
-            f"Enriched IOC={ioc}"
-        )
+        # Rate-limiting sleep between requests if more remain
+        if idx < total_pending:
+            time.sleep(VT_SLEEP)
 
-        time.sleep(VT_SLEEP)
-
-    logging.info(f"[✓] FINISH - Cheking to Threat Intelligence Tools | new={new_count}")
+    logging.info("=" * 65)
+    logging.info(f"[✓] TIP ENRICHMENT FINISHED | Newly enriched IOCs: {new_count}")
+    logging.info("=" * 65)

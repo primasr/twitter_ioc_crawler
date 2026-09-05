@@ -1,8 +1,5 @@
 import logging
-from .config import LOG_FILE, BASE_DIR
-
-# New TXT log file
-TXT_LOG_FILE = BASE_DIR / "twitter_ioc_crawler_log.txt"
+from .config import LOG_FILE, TXT_LOG_FILE
 
 
 def setup_logging():
@@ -19,7 +16,8 @@ def setup_logging():
         return
 
     formatter = logging.Formatter(
-        "%(asctime)s | %(levelname)s | %(message)s"
+        "%(asctime)s | %(levelname)-7s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
     )
 
     # ---- Main LOG file (.log) ----

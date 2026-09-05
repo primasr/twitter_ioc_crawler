@@ -64,23 +64,27 @@ def merge_tip_fields(row: dict, result: dict):
 
 
 def load_ioc_index():
-    iocs = set()
+    iocs = []
+    seen = set()
 
     if not os.path.isfile(IOC_INDEX_FILE):
         return iocs
 
     with open(IOC_INDEX_FILE, "r", encoding="utf-8") as f:
         for line in f:
-            if not line.strip() or line.startswith("#"):
+            line = line.strip()
+            if not line or line.startswith("#"):
                 continue
 
             parts = [p.strip() for p in line.split("|")]
+            if len(parts) >= 1:
+                ioc = parts[0]
+                ioc_type = parts[1] if len(parts) > 1 else ""
+                tweet_link = parts[2] if len(parts) > 2 else ""
 
-            ioc = parts[0]
-            ioc_type = parts[1] if len(parts) > 1 else ""
-            tweet_link = parts[2] if len(parts) > 2 else ""
-
-            iocs.add((ioc, ioc_type, tweet_link))
+                if ioc not in seen:
+                    seen.add(ioc)
+                    iocs.append((ioc, ioc_type, tweet_link))
 
     return iocs
 
@@ -92,9 +96,12 @@ def load_existing_tip_results():
 
     with open(TIP_RESULTS_FILE, "r", encoding="utf-8") as f:
         for line in f:
-            if not line.strip() or line.startswith("#"):
+            line = line.strip()
+            if not line or line.startswith("#"):
                 continue
-            seen.add(line.split("|")[1].strip())
+            parts = [p.strip() for p in line.split("|")]
+            if len(parts) >= 2:
+                seen.add(parts[1])
     return seen
 
 
@@ -157,6 +164,6 @@ def save_tip_result(result: dict):
         for r in rows.values():
             f.write(" | ".join(r.get(c, "") for c in DATASET_COLUMNS) + "\n")
 
-    logging.info(
+    logging.debug(
         f"TIP result {'saved' if action=='new' else 'skipped'} | IOC={ioc} | {action.upper()}"
     )

@@ -12,7 +12,8 @@ CT0 = os.getenv("CT0")
 TWITTER_USER_FILE = BASE_DIR / "twitter_users.txt"
 
 # ---- Files ----
-LOG_FILE = BASE_DIR / "logging.log"
+LOG_FILE = BASE_DIR / "twitter_ioc_crawler_log.log"
+TXT_LOG_FILE = BASE_DIR / "twitter_ioc_crawler_log.txt"
 IOC_INDEX_FILE = BASE_DIR / "iocs.txt"
 TIP_RESULTS_FILE = BASE_DIR / "tip_results.txt"
 
