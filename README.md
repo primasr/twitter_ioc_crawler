@@ -8,6 +8,14 @@ The pipeline is composed of two core components: a Crawler that collects tweets 
 
 ## List of Updates
 
+### Sep 5th 2026
+
+- **Anti-Bot & Cookie Injection Fix:** Configured Selenium Chrome options with anti-detection flags and standard desktop User-Agent to prevent HTTP 403 bot blocks and `InvalidCookieDomainException`.
+- **AlienVault OTX Field Mapping Fix:** Corrected dataset dictionary keys (`alienvault_time` and `alienvault_pulse_info_count`) to ensure pulse counts and timestamps populate correctly into `tip_results.txt` and SIEM payloads.
+- **Enhanced Defanged IOC Detection:** Expanded normalization to support common defanging syntax (`hxxp://`, `hxxps://`, `[:]`, `(.)`).
+- **Structured Tree Logging:** Redesigned log outputs with stage banners, progress counters (`[X/Y]`), and hierarchical provider results while eliminating duplicate logs.
+- **Unified Log Naming & Driver Lifecycle Safety:** Standardized log naming to `twitter_ioc_crawler_log` (`.log` and `.txt`) and ensured Chrome WebDrivers are safely closed via `try...finally` blocks.
+
 ### Feb 9th 2026
 
 Fixing logic flaw: retry loop on verdict/reputation checking
